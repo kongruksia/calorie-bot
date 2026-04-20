@@ -2,7 +2,7 @@ import os
 import anthropic
 import base64
 from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, MessageHandler, filters, ContextTypes
 
 client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
@@ -25,10 +25,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(response.content[0].text)
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📸 Please send a photo of your food and I'll count the calories!")
+    await update.message.reply_text("📸 Send a photo of your food and I'll count the calories!")
 
 if __name__ == "__main__":
-    app = ApplicationBuilder().token(os.environ["TELEGRAM_TOKEN"]).build()
+    app = Application.builder().token(os.environ["TELEGRAM_TOKEN"]).build()
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT, handle_text))
     app.run_polling()
