@@ -1,4 +1,2 @@
 python-telegram-bot==20.7
-anthropic
-
-
+anthropic>=0.40.0

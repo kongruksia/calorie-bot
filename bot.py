@@ -34,6 +34,12 @@ def main_menu():
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
+def progress_bar(total, goal):
+    if goal <= 0:
+        return "⬜" * 10
+    filled = min(10, int(total / goal * 10))
+    return "🟩" * filled + "⬜" * (10 - filled)
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = update.effective_user.first_name
     await update.message.reply_text(
@@ -53,18 +59,19 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u = get_user(update.effective_user.id)
     await update.message.reply_text("🔍 Analyzing your food... 🤖✨")
 
-    photo = await update.message.photo[-1].get_file()
-    file_bytes = await photo.download_as_bytearray()
-    b64 = base64.standard_b64encode(file_bytes).decode()
+    try:
+        photo = await update.message.photo[-1].get_file()
+        file_bytes = await photo.download_as_bytearray()
+        b64 = base64.standard_b64encode(file_bytes).decode()
 
-    response = client.messages.create(
-        model="claude-opus-4-5",
-        max_tokens=1024,
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}},
-                {"type": "text", "text": """Analyze this food image in English only.
+        response = client.messages.create(
+            model="claude-opus-4-7",
+            max_tokens=1024,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}},
+                    {"type": "text", "text": """Analyze this food image in English only.
 Format exactly like this:
 
 🍽️ FOOD DETECTED:
@@ -81,31 +88,39 @@ Format exactly like this:
 • [one suggestion to make it healthier]
 
 ⭐ HEALTHINESS SCORE: [X]/10"""}
-            ]
-        }]
-    )
+                ]
+            }]
+        )
 
-    result_text = response.content[0].text
+        result_text = response.content[0].text
+    except Exception as e:
+        await update.message.reply_text(
+            "❌ Sorry, I couldn't analyze your photo. Please try again! 🔄",
+            reply_markup=main_menu()
+        )
+        return
 
     try:
         lines = result_text.split('\n')
         for line in lines:
             if 'Calories:' in line and 'kcal' in line:
                 cal_str = line.split('Calories:')[1].split('kcal')[0].strip()
-                calories = int(''.join(filter(str.isdigit, cal_str)))
-                u["today"].append({
-                    "time": datetime.now().strftime("%H:%M"),
-                    "calories": calories,
-                    "text": result_text[:50]
-                })
+                digits = ''.join(filter(str.isdigit, cal_str))
+                if digits:
+                    calories = int(digits)
+                    u["today"].append({
+                        "time": datetime.now().strftime("%H:%M"),
+                        "calories": calories,
+                        "text": result_text[:50]
+                    })
                 break
-    except:
+    except Exception:
         pass
 
     total_today = sum(m["calories"] for m in u["today"])
     goal = u["goal"]
     remaining = goal - total_today
-    bar = "🟩" * min(10, int(total_today/goal*10)) + "⬜" * max(0, 10-int(total_today/goal*10))
+    bar = progress_bar(total_today, goal)
 
     await update.message.reply_text(result_text)
     await update.message.reply_text(
@@ -131,7 +146,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             total = sum(m["calories"] for m in u["today"])
             goal = u["goal"]
             remaining = goal - total
-            bar = "🟩" * min(10, int(total/goal*10)) + "⬜" * max(0, 10-int(total/goal*10))
+            bar = progress_bar(total, goal)
             meals_text = "\n".join([f"• {m['time']} - {m['calories']} kcal" for m in u["today"]])
             await update.message.reply_text(
                 f"📊 *Today's Summary*\n\n"
@@ -193,6 +208,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif context.user_data.get("setting_goal"):
         try:
             new_goal = int(text)
+            if new_goal <= 0:
+                raise ValueError("Goal must be positive")
             u["goal"] = new_goal
             context.user_data["setting_goal"] = False
             await update.message.reply_text(
@@ -200,8 +217,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown",
                 reply_markup=main_menu()
             )
-        except:
-            await update.message.reply_text("❌ Please type a number only (e.g. 1800)")
+        except (ValueError, TypeError):
+            await update.message.reply_text("❌ Please type a positive number only (e.g. 1800)")
     else:
         await update.message.reply_text(
             "📸 Send a food photo to analyze calories! 🍽️",
